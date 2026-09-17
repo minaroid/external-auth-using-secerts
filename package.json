@@ -1,0 +1,31 @@
+{
+  "name": "tra-auth-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Service-to-service authentication using application secrets and short-lived access tokens",
+  "workspaces": [
+    "packages/auth-service",
+    "packages/service-a",
+    "packages/service-b"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
+    "seed": "node scripts/seed.js",
+    "start:auth": "npm start --workspace=@tra/auth-service",
+    "start:a": "npm start --workspace=@tra/service-a",
+    "start:b": "npm start --workspace=@tra/service-b",
+    "start:all": "node scripts/start-all.js",
+    "smoke": "node scripts/smoke-test.js",
+    "bootstrap": "node scripts/bootstrap.js",
+    "postman": "node scripts/build-postman.js && node scripts/postman-env.js",
+    "postman:env": "node scripts/postman-env.js",
+    "docs:pdf": "node scripts/build-pdf.js"
+  },
+  "devDependencies": {
+    "typescript": "~5.6.3"
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Every service keeps its own .env; none of them belong in git.
+.env
+packages/*/.env
+
+data/
+*.log
+
+# Generated with live credentials; the template beside it is the committed one.
+postman/tra-auth.postman_environment.json

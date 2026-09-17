@@ -1,0 +1,30 @@
+{
+  "name": "@tra/service-a",
+  "version": "1.0.0",
+  "description": "Calling service: exchanges its application secret for short lived tokens and calls service B with them.",
+  "main": "dist/index.js",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "start": "node -r dotenv/config dist/index.js",
+    "dev": "npm run build && npm start"
+  },
+  "dependencies": {
+    "@loopback/authentication": "^12.0.17",
+    "@loopback/boot": "^8.0.16",
+    "@loopback/core": "^7.0.15",
+    "@loopback/rest": "^15.0.16",
+    "@loopback/rest-explorer": "^8.0.16",
+    "@loopback/security": "^0.12.15",
+    "@tra/auth-service": "1.0.0",
+    "dotenv": "^16.4.5",
+    "tslib": "^2.6.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "typescript": "~5.6.3"
+  }
+}

@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Service-to-service authentication — architecture overview</title>
+<style>
+  :root {
+    --ink:      #14171d;
+    --body:     #3d4450;
+    --muted:    #767e8c;
+    --rule:     #dfe3e9;
+    --surface:  #f5f7fa;
+    --auth:     #2159c9;
+    --svca:     #0f8a7e;
+    --svcb:     #6d3fc4;
+    --deny:     #c8322b;
+    --ok:       #12805c;
+    --amber:    #b4690e;
+  }
+
+  @page { size: A4; margin: 0; }
+
+  * { box-sizing: border-box; }
+
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    color: var(--body);
+    font-size: 10.2pt;
+    line-height: 1.52;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page {
+    position: relative;
+    width: 210mm;
+    height: 297mm;
+    padding: 20mm 18mm 16mm;
+    page-break-after: always;
+    overflow: hidden;
+  }
+  .page:last-child { page-break-after: auto; }
+
+  .ph {
+    position: absolute;
+    top: 11mm; left: 18mm; right: 18mm;
+    display: flex; justify-content: space-between; align-items: baseline;
+    font-size: 7.4pt; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted);
+    padding-bottom: 2.5mm;
+    border-bottom: .5pt solid var(--rule);
+  }
+  .ph b { font-weight: 600; color: var(--ink); letter-spacing: .08em; }
+
+  .pf {
+    position: absolute;
+    bottom: 10mm; left: 18mm; right: 18mm;
+    display: flex; justify-content: space-between;
+    font-size: 7.2pt; color: var(--muted);
+    padding-top: 2.5mm;
+    border-top: .5pt solid var(--rule);
+  }
+
+  h1 { font-size: 30pt; line-height: 1.12; margin: 0 0 4mm; color: var(--ink); font-weight: 600; letter-spacing: -.015em; }
+  h2 { font-size: 17.5pt; line-height: 1.2;  margin: 0 0 3mm; color: var(--ink); font-weight: 600; letter-spacing: -.01em; }
+  h3 { font-size: 10.5pt; margin: 0 0 1.5mm; color: var(--ink); font-weight: 600; }
+
+  p { margin: 0 0 3mm; }
+  .lede { font-size: 11pt; color: var(--body); margin-bottom: 7mm; max-width: 158mm; }
+  .note { font-size: 8.8pt; color: var(--muted); }
+
+  figure { margin: 0 0 6mm; }
+  figcaption {
+    font-size: 8.4pt; color: var(--muted); margin-top: 3mm;
+    padding-left: 3mm; border-left: 2pt solid var(--rule);
+  }
+  svg { display: block; width: 100%; height: auto; }
+
+  code, .mono {
+    font-family: "SF Mono", Menlo, Consolas, monospace;
+    font-size: .88em;
+  }
+  code { background: var(--surface); padding: .8pt 2.2pt; border-radius: 2pt; color: var(--ink); }
+
+  .cols { display: flex; gap: 8mm; }
+  .cols > * { flex: 1; min-width: 0; }
+
+  .card {
+    background: var(--surface);
+    border: .5pt solid var(--rule);
+    border-radius: 2.5mm;
+    padding: 5mm 5.5mm;
+  }
+  .card h3 { margin-bottom: 2mm; }
+  .card p:last-child { margin-bottom: 0; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 9.2pt; }
+  th {
+    text-align: left; font-weight: 600; color: var(--ink);
+    border-bottom: 1pt solid var(--ink);
+    padding: 2mm 3mm 1.6mm 0; font-size: 8.4pt;
+    letter-spacing: .05em; text-transform: uppercase;
+  }
+  td { padding: 2.4mm 3mm 2.4mm 0; border-bottom: .5pt solid var(--rule); vertical-align: top; }
+  td:last-child, th:last-child { padding-right: 0; }
+
+  .kicker {
+    font-size: 8pt; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--auth); font-weight: 600; margin-bottom: 3mm;
+  }
+
+  .pill {
+    display: inline-block; font-size: 7.6pt; font-weight: 600;
+    padding: .7mm 2mm; border-radius: 1.2mm; letter-spacing: .03em;
+  }
+  .pill-ok   { background: #e2f3ec; color: var(--ok); }
+  .pill-deny { background: #fbe9e8; color: var(--deny); }
+
+  ul { margin: 0 0 3mm; padding-left: 4.5mm; }
+  li { margin-bottom: 1.4mm; }
+  li::marker { color: var(--muted); }
+
+  /* SVG shared type scale */
+  .t-lg { font: 600 13px -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  .t-md { font: 600 11px -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  .t-sm { font: 400 10px -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  .t-xs { font: 400 9px  -apple-system, "Helvetica Neue", Arial, sans-serif; }
+  .t-mono { font: 400 9.5px "SF Mono", Menlo, Consolas, monospace; }
+  .t-mono-sm { font: 400 8.5px "SF Mono", Menlo, Consolas, monospace; }
+  .t-cap { font: 600 8.5px -apple-system, "Helvetica Neue", Arial, sans-serif; letter-spacing: .09em; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════ COVER ══════════════════════════ -->
+<section class="page" style="padding-top:38mm">
+  <div class="kicker">TRA · Platform architecture</div>
+  <h1>Service&#8209;to&#8209;service<br>authentication</h1>
+  <p class="lede" style="font-size:12.5pt;max-width:142mm;margin-bottom:12mm">
+    How one service proves who it is to another, without a certificate
+    authority and without a long&#8209;lived secret ever crossing the wire
+    between them.
+  </p>
+
+  <svg viewBox="0 0 640 250" role="img" aria-label="Three services around a central auth service">
+    <defs>
+      <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#767e8c"/>
+      </marker>
+      <marker id="ar-auth" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#2159c9"/>
+      </marker>
+    </defs>
+
+    <!-- auth service -->
+    <rect x="215" y="8" width="210" height="72" rx="7" fill="#eef3fd" stroke="#2159c9" stroke-width="1.4"/>
+    <text x="320" y="34" class="t-lg" fill="#2159c9" text-anchor="middle">auth-service</text>
+    <text x="320" y="51" class="t-sm" fill="#5b6b8c" text-anchor="middle">application registry · secret lifecycle</text>
+    <text x="320" y="65" class="t-sm" fill="#5b6b8c" text-anchor="middle">token issuance · token verification</text>
+
+    <!-- service A -->
+    <rect x="22" y="160" width="192" height="66" rx="7" fill="#e9f5f3" stroke="#0f8a7e" stroke-width="1.4"/>
+    <text x="118" y="188" class="t-lg" fill="#0f8a7e" text-anchor="middle">service-a</text>
+    <text x="118" y="205" class="t-sm" fill="#4a7a74" text-anchor="middle">the caller</text>
+
+    <!-- service B -->
+    <rect x="426" y="160" width="192" height="66" rx="7" fill="#f1ecfb" stroke="#6d3fc4" stroke-width="1.4"/>
+    <text x="522" y="188" class="t-lg" fill="#6d3fc4" text-anchor="middle">service-b</text>
+    <text x="522" y="205" class="t-sm" fill="#68599a" text-anchor="middle">the protected resource</text>
+
+    <!-- A -> auth -->
+    <path d="M150,158 L232,84" fill="none" stroke="#2159c9" stroke-width="1.3" marker-end="url(#ar-auth)"/>
+    <text x="118" y="126" class="t-xs" fill="#2159c9" text-anchor="middle">① secret → token</text>
+
+    <!-- A -> B -->
+    <path d="M216,193 L422,193" fill="none" stroke="#767e8c" stroke-width="1.3" marker-end="url(#ar)"/>
+    <text x="319" y="186" class="t-xs" fill="#5b6270" text-anchor="middle">② Bearer &lt;token&gt;</text>
+
+    <!-- B -> auth -->
+    <path d="M492,158 L410,84" fill="none" stroke="#2159c9" stroke-width="1.3" marker-end="url(#ar-auth)"/>
+    <text x="528" y="126" class="t-xs" fill="#2159c9" text-anchor="middle">③ is this token real?</text>
+    <text x="528" y="139" class="t-xs" fill="#2159c9" text-anchor="middle">who is calling?</text>
+  </svg>
+
+  <div style="margin-top:14mm;display:flex;gap:10mm">
+    <div style="flex:1">
+      <div class="kicker" style="margin-bottom:2.5mm">The design</div>
+      <table style="font-size:9pt">
+        <tr><td style="width:9mm;color:var(--muted);border:none;padding:1.4mm 0">02</td><td style="border:none;padding:1.4mm 0">The three services</td></tr>
+        <tr><td style="color:var(--muted);border:none;padding:1.4mm 0">03</td><td style="border:none;padding:1.4mm 0">One request, end to end</td></tr>
+      </table>
+    </div>
+    <div style="flex:1">
+      <div class="kicker" style="margin-bottom:2.5mm">Managing it</div>
+      <table style="font-size:9pt">
+        <tr><td style="width:9mm;color:var(--muted);border:none;padding:1.4mm 0">04</td><td style="border:none;padding:1.4mm 0">What the auth service stores</td></tr>
+        <tr><td style="color:var(--muted);border:none;padding:1.4mm 0">05</td><td style="border:none;padding:1.4mm 0">Adding data to an application</td></tr>
+        <tr><td style="color:var(--muted);border:none;padding:1.4mm 0">06</td><td style="border:none;padding:1.4mm 0">The management surface</td></tr>
+        <tr><td style="color:var(--muted);border:none;padding:1.4mm 0">07</td><td style="border:none;padding:1.4mm 0">Secrets and rotation</td></tr>
+      </table>
+    </div>
+    <div style="flex:1">
+      <div class="kicker" style="margin-bottom:2.5mm">Operating it</div>
+      <table style="font-size:9pt">
+        <tr><td style="width:9mm;color:var(--muted);border:none;padding:1.4mm 0">08</td><td style="border:none;padding:1.4mm 0">When something goes wrong</td></tr>
+        <tr><td style="color:var(--muted);border:none;padding:1.4mm 0">09</td><td style="border:none;padding:1.4mm 0">In short</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div style="position:absolute;bottom:20mm;left:18mm;right:18mm;border-top:.5pt solid var(--rule);padding-top:4mm;display:flex;justify-content:space-between;font-size:8.6pt;color:var(--muted)">
+    <span>Architecture overview · three LoopBack 4 services</span>
+    <span>v1.0 · September 2026</span>
+  </div>
+</section>
+
+<!-- ══════════════════════════ 3 · THE THREE SERVICES ══════════════════════════ -->
+<section class="page">
+  <div class="ph"><span><b>Service-to-service authentication</b> · Architecture overview</span><span>02</span></div>
+
+  <h2>The three services</h2>
+  <p class="lede">
+    Each has one job. Service A and service B are ordinary application services;
+    the auth service is the only one that knows anything about credentials.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 640 330" role="img" aria-label="Responsibilities of each of the three services">
+    <defs>
+      <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#767e8c"/>
+      </marker>
+    </defs>
+
+    <!-- auth service panel -->
+    <rect x="170" y="0" width="300" height="132" rx="7" fill="#eef3fd" stroke="#2159c9" stroke-width="1.4"/>
+    <text x="188" y="25" class="t-lg" fill="#2159c9">auth-service</text>
+    <text x="452" y="25" class="t-mono-sm" fill="#5b6b8c" text-anchor="end">:3000</text>
+    <line x1="188" y1="35" x2="452" y2="35" stroke="#c3d4f2" stroke-width="1"/>
+    <text x="188" y="54"  class="t-sm" fill="#33425e">Holds the registry of every application</text>
+    <text x="188" y="72"  class="t-sm" fill="#33425e">Issues and revokes application secrets</text>
+    <text x="188" y="90"  class="t-sm" fill="#33425e">Exchanges a secret for a short-lived token</text>
+    <text x="188" y="108" class="t-sm" fill="#33425e">Answers “is this token real, and who holds it?”</text>
+    <text x="188" y="124" class="t-xs" fill="#7b88a4">The only service that stores credential material.</text>
+
+    <!-- service A panel -->
+    <rect x="0" y="196" width="300" height="130" rx="7" fill="#e9f5f3" stroke="#0f8a7e" stroke-width="1.4"/>
+    <text x="18" y="221" class="t-lg" fill="#0f8a7e">service-a</text>
+    <text x="282" y="221" class="t-mono-sm" fill="#4a7a74" text-anchor="end">:3001</text>
+    <line x1="18" y1="231" x2="282" y2="231" stroke="#b9ded8" stroke-width="1"/>
+    <text x="18" y="250" class="t-sm" fill="#2f5b56">Holds one secret — its own</text>
+    <text x="18" y="268" class="t-sm" fill="#2f5b56">Trades it for a token, caches and refreshes</text>
+    <text x="18" y="286" class="t-sm" fill="#2f5b56">Calls service B with the token</text>
+    <text x="18" y="308" class="t-xs" fill="#5d8a84">Never sees any other service’s credentials.</text>
+
+    <!-- service B panel -->
+    <rect x="340" y="196" width="300" height="130" rx="7" fill="#f1ecfb" stroke="#6d3fc4" stroke-width="1.4"/>
+    <text x="358" y="221" class="t-lg" fill="#6d3fc4">service-b</text>
+    <text x="622" y="221" class="t-mono-sm" fill="#68599a" text-anchor="end">:3002</text>
+    <line x1="358" y1="231" x2="622" y2="231" stroke="#d6cbee" stroke-width="1"/>
+    <text x="358" y="250" class="t-sm" fill="#4a3b70">Accepts only tokens minted for itself</text>
+    <text x="358" y="268" class="t-sm" fill="#4a3b70">Verifies each one with the auth service</text>
+    <text x="358" y="286" class="t-sm" fill="#4a3b70">Enforces scopes per endpoint</text>
+    <text x="358" y="308" class="t-xs" fill="#7b6aa8">Learns who is calling without being told by the caller.</text>
+
+    <!-- connectors -->
+    <path d="M150,196 L150,168 Q150,158 160,158 L310,158 Q320,158 320,148 L320,136"
+          fill="none" stroke="#767e8c" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <path d="M490,196 L490,168 Q490,158 480,158 L330,158 Q320,158 320,148 L320,136"
+          fill="none" stroke="#767e8c" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <rect x="270" y="166" width="100" height="18" rx="3" fill="#ffffff" stroke="#dfe3e9" stroke-width=".8"/>
+    <text x="320" y="179" class="t-xs" fill="#5b6270" text-anchor="middle">both depend on it</text>
+
+    <path d="M300,261 L336,261" fill="none" stroke="#767e8c" stroke-width="1.2" marker-end="url(#ar2)"/>
+  </svg>
+  <figcaption>
+    Service B holds credentials of its own, because verifying a token is itself
+    an authenticated call. Nothing in the system sends a secret on a routine
+    request.
+  </figcaption>
+  </figure>
+
+  <div class="cols">
+    <div class="card">
+      <h3>What travels between A and B</h3>
+      <p style="margin-bottom:0">
+        Only a bearer token: <code>tra_at_9f2c…</code>. It expires in ten
+        minutes and is valid at service B and nowhere else.
+      </p>
+    </div>
+    <div class="card">
+      <h3>What never travels</h3>
+      <p style="margin-bottom:0">
+        The application secret. It goes to exactly one endpoint,
+        <code>POST&nbsp;/oauth/token</code>, and no further.
+      </p>
+    </div>
+  </div>
+
+  <table style="margin-top:7mm">
+    <tr><th style="width:22%">Service</th><th style="width:30%">Role</th><th>What it holds</th></tr>
+    <tr>
+      <td><span class="mono" style="color:var(--auth);font-weight:600">auth-service</span></td>
+      <td>Issuer and verifier</td>
+      <td>The registry, every secret hash, the token pepper, the administrator key</td>
+    </tr>
+    <tr>
+      <td><span class="mono" style="color:var(--svca);font-weight:600">service-a</span></td>
+      <td>Caller</td>
+      <td>Its own client id and secret — nothing else</td>
+    </tr>
+    <tr style="border-bottom:none">
+      <td><span class="mono" style="color:var(--svcb);font-weight:600">service-b</span></td>
+      <td>Resource server</td>
+      <td>Its own client id and secret — nothing else</td>
+    </tr>
+  </table>
+
+  <p class="note" style="margin-top:5mm">
+    All three are LoopBack 4 applications. A service becomes part of this scheme
+    with one call at start-up and a decorator on each endpoint it wants
+    protected; the verification, caching and refresh logic is shared.
+  </p>
+
+  <div class="pf"><span>TRA · Platform architecture</span><span>September 2026</span></div>
+</section>
+
+<!-- ══════════════════════════ 4 · THE FLOW ══════════════════════════ -->
+<section class="page">
+  <div class="ph"><span><b>Service-to-service authentication</b> · Architecture overview</span><span>03</span></div>
+
+  <h2>One request, end to end</h2>
+  <p class="lede">
+    Everything below happens on a single call from service A to service B.
+    Steps ① and ④ are cached, so a busy service performs them a few times a
+    minute, not once per request.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 640 520" role="img" aria-label="Sequence diagram of a single authenticated call">
+    <defs>
+      <marker id="sq" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#14171d"/>
+      </marker>
+      <marker id="sq-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#2159c9"/>
+      </marker>
+    </defs>
+
+    <!-- lanes -->
+    <rect x="8"   y="0" width="150" height="36" rx="5" fill="#e9f5f3" stroke="#0f8a7e" stroke-width="1.2"/>
+    <text x="83"  y="23" class="t-md" fill="#0f8a7e" text-anchor="middle">service-a</text>
+    <rect x="245" y="0" width="150" height="36" rx="5" fill="#eef3fd" stroke="#2159c9" stroke-width="1.2"/>
+    <text x="320" y="23" class="t-md" fill="#2159c9" text-anchor="middle">auth-service</text>
+    <rect x="482" y="0" width="150" height="36" rx="5" fill="#f1ecfb" stroke="#6d3fc4" stroke-width="1.2"/>
+    <text x="557" y="23" class="t-md" fill="#6d3fc4" text-anchor="middle">service-b</text>
+
+    <line x1="83"  y1="36" x2="83"  y2="506" stroke="#cdd3dc" stroke-width="1" stroke-dasharray="3 3"/>
+    <line x1="320" y1="36" x2="320" y2="506" stroke="#cdd3dc" stroke-width="1" stroke-dasharray="3 3"/>
+    <line x1="557" y1="36" x2="557" y2="506" stroke="#cdd3dc" stroke-width="1" stroke-dasharray="3 3"/>
+
+    <!-- phase 1 band -->
+    <rect x="0" y="52" width="640" height="182" rx="5" fill="#fafbfc"/>
+    <text x="628" y="68" class="t-cap" fill="#b0b7c2" text-anchor="end">ONCE PER TOKEN</text>
+
+    <!-- 1 token request -->
+    <path d="M83,92 L314,92" stroke="#14171d" stroke-width="1.3" marker-end="url(#sq)"/>
+    <text x="90" y="85" class="t-sm" fill="#14171d">① POST /oauth/token &nbsp;— the only request that carries a secret</text>
+    <text x="90" y="108" class="t-mono-sm" fill="#767e8c">Basic service-a:tra_sk_… · audience=service-b · scope=orders:read</text>
+
+    <rect x="240" y="124" width="160" height="38" rx="4" fill="#eef3fd" stroke="#c3d4f2" stroke-width=".9"/>
+    <text x="320" y="139" class="t-xs" fill="#2159c9" text-anchor="middle">verify the scrypt hash</text>
+    <text x="320" y="153" class="t-xs" fill="#2159c9" text-anchor="middle">check audience and scopes</text>
+
+    <path d="M314,190 L88,190" stroke="#2159c9" stroke-width="1.3" marker-end="url(#sq-b)"/>
+    <text x="95" y="183" class="t-sm" fill="#2159c9">token · expires in 600s · audience service-b</text>
+    <text x="95" y="206" class="t-mono-sm" fill="#767e8c">tra_at_9f2c4ab1e0d73a15.KZ8v…</text>
+    <text x="95" y="224" class="t-xs" fill="#a4abb6">Cached in service A and reused for ~9 minutes.</text>
+
+    <!-- phase 2 band -->
+    <text x="628" y="268" class="t-cap" fill="#b0b7c2" text-anchor="end">EVERY REQUEST</text>
+
+    <!-- 2 call B -->
+    <path d="M83,296 L551,296" stroke="#14171d" stroke-width="1.3" marker-end="url(#sq)"/>
+    <text x="90" y="289" class="t-sm" fill="#14171d">② GET /orders/1001</text>
+    <text x="90" y="312" class="t-mono-sm" fill="#767e8c">Authorization: Bearer tra_at_…</text>
+
+    <!-- 3 introspect -->
+    <path d="M551,356 L326,356" stroke="#14171d" stroke-width="1.3" marker-end="url(#sq)"/>
+    <text x="336" y="349" class="t-sm" fill="#14171d">③ POST /oauth/introspect</text>
+    <text x="336" y="372" class="t-mono-sm" fill="#767e8c">authenticated with service B’s own token, not its secret</text>
+
+    <path d="M326,410 L551,410" stroke="#2159c9" stroke-width="1.3" marker-end="url(#sq-b)"/>
+    <text x="336" y="403" class="t-sm" fill="#2159c9">④ active · granted scopes · the caller’s registry profile</text>
+    <rect x="336" y="418" width="232" height="18" rx="3" fill="#ffffff" stroke="#dfe3e9" stroke-width=".8"/>
+    <text x="345" y="431" class="t-mono-sm" fill="#5b6270">cached 30s — this sets revocation latency</text>
+
+    <!-- 5 response -->
+    <path d="M551,476 L88,476" stroke="#6d3fc4" stroke-width="1.3" marker-end="url(#sq)"/>
+    <text x="95" y="469" class="t-sm" fill="#6d3fc4">⑤ 200 — the order</text>
+    <text x="95" y="492" class="t-xs" fill="#767e8c">401 if the token is unknown, expired or revoked · 403 if it lacks the scope</text>
+  </svg>
+  <figcaption>
+    If the auth service cannot be reached at step ③, service B answers 503
+    rather than serving the request. An unavailable verifier is not permission.
+  </figcaption>
+  </figure>
+
+  <div class="cols" style="gap:6mm">
+    <div class="card" style="padding:4mm 4.5mm">
+      <h3>The secret appears once</h3>
+      <p style="margin-bottom:0;font-size:9.2pt">
+        Step ① is the only place in the system that accepts one. Steps ② to ⑤
+        carry a token that is useless anywhere but service B.
+      </p>
+    </div>
+    <div class="card" style="padding:4mm 4.5mm">
+      <h3>Two caches, two dials</h3>
+      <p style="margin-bottom:0;font-size:9.2pt">
+        Service A caches the token for its lifetime; service B caches the
+        verification for 30 seconds. The second dial is revocation latency.
+      </p>
+    </div>
+    <div class="card" style="padding:4mm 4.5mm">
+      <h3>Cost per request</h3>
+      <p style="margin-bottom:0;font-size:9.2pt">
+        In steady state, ② and ⑤ only. The auth service sees roughly two calls
+        a minute per distinct token, not one per request.
+      </p>
+    </div>
+  </div>
+
+  <div class="pf"><span>TRA · Platform architecture</span><span>September 2026</span></div>
+</section>
+
+<!-- ══════════════════════════ 5 · DATA MODEL ══════════════════════════ -->
+<section class="page">
+  <div class="ph"><span><b>Managing the application registry</b> · Architecture overview</span><span>04</span></div>
+
+  <h2>What the auth service stores</h2>
+  <p class="lede">
+    Four records. The <strong>application</strong> is the one you curate — it is
+    where you describe who a caller is. The rest are produced and retired by the
+    system as it runs.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 640 392" role="img" aria-label="Entity relationships between application, secrets, tokens and audit events">
+    <defs>
+      <marker id="crow" viewBox="0 0 12 12" refX="1" refY="6" markerWidth="10" markerHeight="10" orient="auto">
+        <path d="M11,1 L1,6 L11,11" fill="none" stroke="#767e8c" stroke-width="1.1"/>
+      </marker>
+    </defs>
+
+    <!-- APPLICATION -->
+    <rect x="0" y="0" width="268" height="238" rx="6" fill="#eef3fd" stroke="#2159c9" stroke-width="1.5"/>
+    <rect x="0" y="0" width="268" height="30" rx="6" fill="#2159c9"/>
+    <rect x="0" y="22" width="268" height="8" fill="#2159c9"/>
+    <text x="14" y="20" class="t-md" fill="#ffffff">Application</text>
+    <text x="254" y="20" class="t-xs" fill="#c4d6f7" text-anchor="end">you curate this</text>
+
+    <text x="14" y="49"  class="t-mono" fill="#14171d">id</text>
+    <text x="254" y="49" class="t-xs" fill="#5b6b8c" text-anchor="end">the client_id, e.g. service-a</text>
+    <text x="14" y="67"  class="t-mono" fill="#14171d">name · description</text>
+    <text x="14" y="85"  class="t-mono" fill="#14171d">team · owner · contactEmail</text>
+    <text x="254" y="85" class="t-xs" fill="#5b6b8c" text-anchor="end">who to call at 3am</text>
+    <text x="14" y="103" class="t-mono" fill="#14171d">environment · tags[]</text>
+    <text x="14" y="121" class="t-mono" fill="#14171d">metadata{}</text>
+    <text x="254" y="121" class="t-xs" fill="#5b6b8c" text-anchor="end">free-form, yours to define</text>
+
+    <line x1="14" y1="134" x2="254" y2="134" stroke="#c3d4f2" stroke-width="1"/>
+
+    <text x="14" y="154" class="t-mono" fill="#14171d">audience</text>
+    <text x="254" y="154" class="t-xs" fill="#5b6b8c" text-anchor="end">its name as a callee</text>
+    <text x="14" y="172" class="t-mono" fill="#14171d">allowedAudiences[]</text>
+    <text x="254" y="172" class="t-xs" fill="#5b6b8c" text-anchor="end">who it may call</text>
+    <text x="14" y="190" class="t-mono" fill="#14171d">allowedScopes[]</text>
+    <text x="254" y="190" class="t-xs" fill="#5b6b8c" text-anchor="end">ceiling, not a grant</text>
+    <text x="14" y="208" class="t-mono" fill="#14171d">status · tokenTtlSeconds</text>
+    <text x="14" y="226" class="t-mono" fill="#14171d">allowedIps[]</text>
+
+    <!-- CLIENT SECRET -->
+    <rect x="352" y="0" width="288" height="112" rx="6" fill="#fff" stroke="#c9ced8" stroke-width="1.2"/>
+    <rect x="352" y="0" width="288" height="26" rx="6" fill="#eef1f5"/>
+    <rect x="352" y="18" width="288" height="8" fill="#eef1f5"/>
+    <text x="366" y="18" class="t-md" fill="#14171d">ClientSecret</text>
+    <text x="626" y="18" class="t-xs" fill="#767e8c" text-anchor="end">up to 5 active</text>
+    <text x="366" y="44" class="t-mono" fill="#14171d">secretHash</text>
+    <text x="626" y="44" class="t-xs" fill="#767e8c" text-anchor="end">scrypt — never the plaintext</text>
+    <text x="366" y="62" class="t-mono" fill="#14171d">label · status</text>
+    <text x="366" y="80" class="t-mono" fill="#14171d">expiresAt · revokedAt</text>
+    <text x="366" y="98" class="t-mono" fill="#14171d">lastUsedAt · useCount</text>
+    <text x="626" y="98" class="t-xs" fill="#767e8c" text-anchor="end">is it still in use?</text>
+
+    <!-- ACCESS TOKEN -->
+    <rect x="352" y="136" width="288" height="102" rx="6" fill="#fff" stroke="#c9ced8" stroke-width="1.2"/>
+    <rect x="352" y="136" width="288" height="26" rx="6" fill="#eef1f5"/>
+    <rect x="352" y="154" width="288" height="8" fill="#eef1f5"/>
+    <text x="366" y="154" class="t-md" fill="#14171d">AccessToken</text>
+    <text x="626" y="154" class="t-xs" fill="#767e8c" text-anchor="end">minutes, then gone</text>
+    <text x="366" y="180" class="t-mono" fill="#14171d">tokenHash</text>
+    <text x="626" y="180" class="t-xs" fill="#767e8c" text-anchor="end">peppered HMAC</text>
+    <text x="366" y="198" class="t-mono" fill="#14171d">audience · scopes[]</text>
+    <text x="366" y="216" class="t-mono" fill="#14171d">secretId</text>
+    <text x="626" y="216" class="t-xs" fill="#767e8c" text-anchor="end">which secret minted it</text>
+    <text x="366" y="232" class="t-xs" fill="#767e8c">expiresAt · revokedAt · clientIp</text>
+
+    <!-- AUDIT -->
+    <rect x="0" y="272" width="640" height="102" rx="6" fill="#fdfaf4" stroke="#e8d6b4" stroke-width="1.2"/>
+    <rect x="0" y="272" width="640" height="26" rx="6" fill="#f6ecd9"/>
+    <rect x="0" y="290" width="640" height="8" fill="#f6ecd9"/>
+    <text x="14" y="290" class="t-md" fill="#8a5a08">AuditEvent</text>
+    <text x="626" y="290" class="t-xs" fill="#9c7738" text-anchor="end">append-only</text>
+    <text x="14" y="316" class="t-mono" fill="#14171d">type</text>
+    <text x="14" y="334" class="t-mono-sm" fill="#5b6270">token.issued · token.denied · token.throttled · secret.issued · secret.rotated</text>
+    <text x="14" y="350" class="t-mono-sm" fill="#5b6270">secret.revoked · secret.expired · app.created · app.updated · app.suspended</text>
+    <text x="14" y="368" class="t-xs" fill="#9c7738">Records actor, source IP and reason for every credential event. Admin keys appear as a fingerprint, never in the clear.</text>
+
+    <!-- relations -->
+    <path d="M268,60 L352,52" fill="none" stroke="#767e8c" stroke-width="1.1" marker-end="url(#crow)"/>
+    <text x="310" y="46" class="t-xs" fill="#767e8c" text-anchor="middle">1 : many</text>
+
+    <path d="M268,176 L352,186" fill="none" stroke="#767e8c" stroke-width="1.1" marker-end="url(#crow)"/>
+    <text x="310" y="204" class="t-xs" fill="#767e8c" text-anchor="middle">1 : many</text>
+
+    <path d="M496,112 L496,134" fill="none" stroke="#767e8c" stroke-width="1.1" stroke-dasharray="3 2"/>
+    <text x="506" y="128" class="t-xs" fill="#767e8c">mints</text>
+  </svg>
+  <figcaption>
+    Revoking a secret revokes every token carrying its <code>secretId</code> —
+    which is how a leaked credential is contained in one call rather than
+    waiting for tokens to expire.
+  </figcaption>
+  </figure>
+
+  <div class="cols">
+    <div class="card">
+      <h3>You maintain one of these</h3>
+      <p style="margin-bottom:0">
+        The <strong>application</strong>. Everything else is written by the
+        system as it runs: secrets when you ask for one, tokens on every
+        exchange, audit rows on every event.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Nothing here is reversible</h3>
+      <p style="margin-bottom:0">
+        <code>secretHash</code> and <code>tokenHash</code> are one-way. There is
+        no endpoint, and no query, that returns a usable credential — including
+        for an administrator.
+      </p>
+    </div>
+  </div>
+
+  <div class="pf"><span>TRA · Platform architecture</span><span>September 2026</span></div>
+</section>
+
+<!-- ══════════════════════════ 6 · ADDING DATA ══════════════════════════ -->
+<section class="page">
+  <div class="ph"><span><b>Managing the application registry</b> · Architecture overview</span><span>05</span></div>
+
+  <h2>Adding data to an application</h2>
+  <p class="lede">
+    Anything recorded against an application travels with every token it uses,
+    and arrives at the resource server as fact. The caller never handles it, so
+    it cannot forge it.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 640 344" role="img" aria-label="How registry data reaches a resource server and is used there">
+    <defs>
+      <marker id="fl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#2159c9"/>
+      </marker>
+      <marker id="fl-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#767e8c"/>
+      </marker>
+    </defs>
+
+    <!-- step 1: admin writes -->
+    <text x="0" y="12" class="t-cap" fill="#2159c9">① AN ADMINISTRATOR WRITES IT</text>
+    <rect x="0" y="22" width="196" height="150" rx="6" fill="#fff" stroke="#c9ced8" stroke-width="1.2"/>
+    <text x="14" y="42" class="t-mono-sm" fill="#767e8c">PATCH /admin/applications/</text>
+    <text x="14" y="55" class="t-mono-sm" fill="#767e8c">&nbsp;&nbsp;&nbsp;&nbsp;billing-worker</text>
+    <line x1="14" y1="64" x2="182" y2="64" stroke="#e6e9ee" stroke-width="1"/>
+    <text x="14" y="82"  class="t-mono-sm" fill="#14171d">"team": "finance-platform"</text>
+    <text x="14" y="98"  class="t-mono-sm" fill="#14171d">"environment": "prod"</text>
+    <text x="14" y="114" class="t-mono-sm" fill="#14171d">"metadata": {</text>
+    <text x="14" y="130" class="t-mono-sm" fill="#14171d">&nbsp;&nbsp;"tenantId": "tdra",</text>
+    <text x="14" y="146" class="t-mono-sm" fill="#14171d">&nbsp;&nbsp;"rateLimitTier": "gold"</text>
+    <text x="14" y="162" class="t-mono-sm" fill="#14171d">}</text>
+
+    <path d="M200,97 L238,97" stroke="#2159c9" stroke-width="1.3" marker-end="url(#fl)"/>
+
+    <!-- step 2: registry -->
+    <text x="244" y="12" class="t-cap" fill="#2159c9">② IT LIVES IN THE REGISTRY</text>
+    <rect x="244" y="22" width="152" height="150" rx="6" fill="#eef3fd" stroke="#2159c9" stroke-width="1.3"/>
+    <text x="320" y="72" class="t-md" fill="#2159c9" text-anchor="middle">auth-service</text>
+    <text x="320" y="92" class="t-sm" fill="#5b6b8c" text-anchor="middle">Application record</text>
+    <text x="320" y="122" class="t-xs" fill="#5b6b8c" text-anchor="middle">Only an admin can change it.</text>
+    <text x="320" y="136" class="t-xs" fill="#5b6b8c" text-anchor="middle">The application itself cannot.</text>
+
+    <path d="M400,97 L438,97" stroke="#2159c9" stroke-width="1.3" marker-end="url(#fl)"/>
+
+    <!-- step 3: introspection -->
+    <text x="444" y="12" class="t-cap" fill="#6d3fc4">③ IT ARRIVES WITH THE TOKEN</text>
+    <rect x="444" y="22" width="196" height="150" rx="6" fill="#f1ecfb" stroke="#6d3fc4" stroke-width="1.3"/>
+    <text x="458" y="42" class="t-mono-sm" fill="#68599a">POST /oauth/introspect →</text>
+    <line x1="458" y1="50" x2="626" y2="50" stroke="#d6cbee" stroke-width="1"/>
+    <text x="458" y="68"  class="t-mono-sm" fill="#14171d">"active": true,</text>
+    <text x="458" y="84"  class="t-mono-sm" fill="#14171d">"client_id": "billing-worker",</text>
+    <text x="458" y="100" class="t-mono-sm" fill="#14171d">"scope": "orders:read",</text>
+    <text x="458" y="116" class="t-mono-sm" fill="#14171d">"app": {</text>
+    <text x="458" y="132" class="t-mono-sm" fill="#14171d">&nbsp;&nbsp;"team": "finance-platform",</text>
+    <text x="458" y="148" class="t-mono-sm" fill="#14171d">&nbsp;&nbsp;"metadata": { … }</text>
+    <text x="458" y="164" class="t-mono-sm" fill="#14171d">}</text>
+
+    <!-- step 4: used -->
+    <path d="M542,176 L542,196" stroke="#767e8c" stroke-width="1.2" marker-end="url(#fl-g)"/>
+    <text x="0" y="216" class="t-cap" fill="#6d3fc4">④ THE RESOURCE SERVER ACTS ON IT</text>
+
+    <rect x="0" y="228" width="204" height="106" rx="6" fill="#fafbfc" stroke="#dfe3e9" stroke-width="1"/>
+    <text x="16" y="250" class="t-md" fill="#14171d">Scoping data</text>
+    <text x="16" y="270" class="t-xs" fill="#5b6270">Only return rows whose tenant</text>
+    <text x="16" y="284" class="t-xs" fill="#5b6270">matches metadata.tenantId.</text>
+    <text x="16" y="308" class="t-mono-sm" fill="#6d3fc4">caller.app.metadata.tenantId</text>
+    <text x="16" y="324" class="t-xs" fill="#8a93a0">A caller cannot reach another tenant.</text>
+
+    <rect x="218" y="228" width="204" height="106" rx="6" fill="#fafbfc" stroke="#dfe3e9" stroke-width="1"/>
+    <text x="234" y="250" class="t-md" fill="#14171d">Quotas &amp; routing</text>
+    <text x="234" y="270" class="t-xs" fill="#5b6270">Apply the caller’s rate limit tier,</text>
+    <text x="234" y="284" class="t-xs" fill="#5b6270">region or data residency rule.</text>
+    <text x="234" y="308" class="t-mono-sm" fill="#6d3fc4">metadata.rateLimitTier</text>
+    <text x="234" y="324" class="t-xs" fill="#8a93a0">Set centrally, not per resource server.</text>
+
+    <rect x="436" y="228" width="204" height="106" rx="6" fill="#fafbfc" stroke="#dfe3e9" stroke-width="1"/>
+    <text x="452" y="250" class="t-md" fill="#14171d">Logs &amp; escalation</text>
+    <text x="452" y="270" class="t-xs" fill="#5b6270">Every access line carries the team,</text>
+    <text x="452" y="284" class="t-xs" fill="#5b6270">environment and a contact address.</text>
+    <text x="452" y="308" class="t-mono-sm" fill="#6d3fc4">app.team · app.contactEmail</text>
+    <text x="452" y="324" class="t-xs" fill="#8a93a0">Know who to call, without asking around.</text>
+  </svg>
+  <figcaption>
+    <code>metadata</code> is an open key/value map — it is the extension point.
+    Add whatever your resource servers need to decide about a caller; no schema
+    change is required.
+  </figcaption>
+  </figure>
+
+  <h3 style="margin-top:1mm">Worked example — adding a new attribute</h3>
+  <p style="margin-bottom:4mm">
+    Service B needs to route some callers to a different region. There is no
+    schema change, no migration and no release of the auth service.
+  </p>
+
+  <div class="cols" style="gap:6mm">
+    <div class="card" style="padding:4mm 4.5mm">
+      <h3 style="color:var(--auth)">1 · Record it</h3>
+      <p style="margin-bottom:1.5mm;font-size:9.2pt"><code>PATCH</code> the application with</p>
+      <p class="mono" style="margin-bottom:0;font-size:8.6pt;color:var(--ink);white-space:nowrap">"metadata": {"region": "eu-west"}</p>
+    </div>
+    <div class="card" style="padding:4mm 4.5mm">
+      <h3 style="color:var(--auth)">2 · It propagates</h3>
+      <p style="margin-bottom:0;font-size:9.2pt">
+        Within 30 seconds every resource server sees it on the next
+        verification.
+      </p>
+    </div>
+    <div class="card" style="padding:4mm 4.5mm">
+      <h3 style="color:var(--auth)">3 · Use it</h3>
+      <p style="margin-bottom:0;font-size:9.2pt">
+        Service B reads
+        <code>caller.app.metadata.region</code> and routes accordingly.
+      </p>
+    </div>
+  </div>
+
+  <p class="note" style="margin-top:5mm">
+    The same path carries tenancy, rate limit tiers, cost centres, data
+    residency rules — anything a resource server should know about a caller but
+    must not take the caller's word for.
+  </p>
+
+  <div class="pf"><span>TRA · Platform architecture</span><span>September 2026</span></div>
+</section>
+
+<!-- ══════════════════════════ 7 · MANAGEMENT SURFACE ══════════════════════════ -->
+<section class="page">
+  <div class="ph"><span><b>Managing the application registry</b> · Architecture overview</span><span>06</span></div>
+
+  <h2>The management surface</h2>
+  <p class="lede">
+    One API, behind an administrator key. It is a different trust domain from
+    service traffic — it creates the credentials everything else depends on, so
+    it does not ride on the tokens it issues.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 640 150" role="img" aria-label="Lifecycle of an application from registration to retirement">
+    <defs>
+      <marker id="lc" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#767e8c"/>
+      </marker>
+    </defs>
+    <line x1="34" y1="44" x2="606" y2="44" stroke="#dfe3e9" stroke-width="2"/>
+
+    <circle cx="34"  cy="44" r="7" fill="#2159c9"/>
+    <circle cx="177" cy="44" r="7" fill="#2159c9"/>
+    <circle cx="320" cy="44" r="7" fill="#2159c9"/>
+    <circle cx="463" cy="44" r="7" fill="#b4690e"/>
+    <circle cx="606" cy="44" r="7" fill="#c8322b"/>
+
+    <text x="0"  y="26" class="t-md" fill="#14171d">Register</text>
+    <text x="177" y="26" class="t-md" fill="#14171d" text-anchor="middle">Describe</text>
+    <text x="320" y="26" class="t-md" fill="#14171d" text-anchor="middle">Credential</text>
+    <text x="463" y="26" class="t-md" fill="#14171d" text-anchor="middle">Rotate</text>
+    <text x="640" y="26" class="t-md" fill="#14171d" text-anchor="end">Retire</text>
+
+    <text x="0"  y="66" class="t-mono-sm" fill="#5b6270">POST</text>
+    <text x="0"  y="78" class="t-mono-sm" fill="#5b6270">/applications</text>
+    <text x="177" y="66" class="t-mono-sm" fill="#5b6270" text-anchor="middle">PATCH</text>
+    <text x="177" y="78" class="t-mono-sm" fill="#5b6270" text-anchor="middle">/applications/{id}</text>
+    <text x="320" y="66" class="t-mono-sm" fill="#5b6270" text-anchor="middle">POST</text>
+    <text x="320" y="78" class="t-mono-sm" fill="#5b6270" text-anchor="middle">…/secrets</text>
+    <text x="463" y="66" class="t-mono-sm" fill="#5b6270" text-anchor="middle">POST</text>
+    <text x="463" y="78" class="t-mono-sm" fill="#5b6270" text-anchor="middle">…/secrets/{id}/rotate</text>
+    <text x="640" y="66" class="t-mono-sm" fill="#5b6270" text-anchor="end">DELETE / suspend</text>
+
+    <text x="0"  y="98" class="t-xs" fill="#8a93a0">id, name, who it may call</text>
+    <text x="177" y="98" class="t-xs" fill="#8a93a0" text-anchor="middle">team, owner, tags, metadata</text>
+    <text x="320" y="98" class="t-xs" fill="#8a93a0" text-anchor="middle">plaintext shown once</text>
+    <text x="463" y="98" class="t-xs" fill="#8a93a0" text-anchor="middle">on a schedule</text>
+    <text x="640" y="98" class="t-xs" fill="#8a93a0" text-anchor="end">or after a leak</text>
+
+    <path d="M410,122 Q463,140 516,122" fill="none" stroke="#767e8c" stroke-width="1.1" stroke-dasharray="3 2.5" marker-end="url(#lc)"/>
+    <text x="463" y="146" class="t-xs" fill="#767e8c" text-anchor="middle">repeats — rotation is routine, not an incident</text>
+  </svg>
+  </figure>
+
+  <table>
+    <tr><th style="width:38%">Endpoint</th><th>What it is for</th></tr>
+    <tr><td class="mono">POST /admin/applications</td><td>Register a caller. <code>?issueSecret=true</code> returns its first secret in the same response.</td></tr>
+    <tr><td class="mono">PATCH /admin/applications/{id}</td><td><strong>Add or change the data a resource server sees</strong> — team, owner, contact, environment, tags, metadata, permissions.</td></tr>
+    <tr><td class="mono">GET /admin/applications</td><td>List, filtered by environment, team, tag or status.</td></tr>
+    <tr><td class="mono">GET /admin/applications/{id}</td><td>One application with its secrets and live token count.</td></tr>
+    <tr><td class="mono">POST …/{id}/suspend<br>POST …/{id}/activate</td><td>Reversible kill switch. Stops issuance and revokes outstanding tokens; keeps the history.</td></tr>
+    <tr><td class="mono">POST …/secrets</td><td>Issue a credential. Plaintext returned once, stored only as a hash.</td></tr>
+    <tr><td class="mono">GET …/secrets</td><td>Status, expiry, last use — metadata only, never a hash.</td></tr>
+    <tr><td class="mono">POST …/secrets/{id}/rotate</td><td>Issue a replacement and put the old one on a countdown.</td></tr>
+    <tr><td class="mono">PATCH …/secrets/{id}/expiry</td><td>Shorten a suspect credential, or extend one about to lapse.</td></tr>
+    <tr><td class="mono">DELETE …/secrets/{id}</td><td>Revoke now, along with every token the secret minted.</td></tr>
+    <tr style="border-bottom:none"><td class="mono">GET /admin/audit</td><td>Every credential event, filtered by application, type or outcome.</td></tr>
+  </table>
+
+  <p class="note" style="margin-top:5mm">
+    An importable Postman collection covers all of this — 42 requests, including
+    the failure cases, each asserting its own expected outcome.
+  </p>
+
+  <div class="pf"><span>TRA · Platform architecture</span><span>September 2026</span></div>
+</section>
+
+<!-- ══════════════════════════ 8 · SECRET LIFECYCLE ══════════════════════════ -->
+<section class="page">
+  <div class="ph"><span><b>Credential lifecycle</b> · Architecture overview</span><span>07</span></div>
+
+  <h2>Secrets: many at once, on purpose</h2>
+  <p class="lede">
+    An application may hold several secrets simultaneously. That is what makes
+    rotation uneventful: the replacement is live before the old one dies, so
+    there is never a moment when nothing works.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 640 300" role="img" aria-label="Timeline of issuing, rotating and retiring a secret">
+    <defs>
+      <marker id="tl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+        <path d="M0,1 L9,5 L0,9 z" fill="#767e8c"/>
+      </marker>
+      <pattern id="hatch" width="6" height="6" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+        <line x1="0" y1="0" x2="0" y2="6" stroke="#b4690e" stroke-width="2.2" opacity=".35"/>
+      </pattern>
+    </defs>
+
+    <!-- timeline axis -->
+    <line x1="10" y1="264" x2="620" y2="264" stroke="#c9ced8" stroke-width="1.2" marker-end="url(#tl)"/>
+    <text x="10" y="284" class="t-xs" fill="#8a93a0">day 0</text>
+    <text x="310" y="284" class="t-xs" fill="#8a93a0" text-anchor="middle">day 180 — rotation</text>
+    <text x="610" y="284" class="t-xs" fill="#8a93a0" text-anchor="end">day 360</text>
+
+    <line x1="310" y1="34" x2="310" y2="264" stroke="#dfe3e9" stroke-width="1" stroke-dasharray="4 3"/>
+
+    <!-- secret 1 -->
+    <text x="10" y="52" class="t-cap" fill="#5b6270">SECRET 1  “initial”</text>
+    <rect x="10" y="62" width="300" height="30" rx="4" fill="#dcefe7" stroke="#12805c" stroke-width="1.2"/>
+    <text x="24" y="82" class="t-sm" fill="#12805c">active — minting tokens</text>
+
+    <rect x="310" y="62" width="86" height="30" rx="4" fill="url(#hatch)" stroke="#b4690e" stroke-width="1.2"/>
+    <text x="353" y="82" class="t-xs" fill="#8a5a08" text-anchor="middle">grace</text>
+
+    <rect x="396" y="62" width="224" height="30" rx="4" fill="#f4f5f7" stroke="#c9ced8" stroke-width="1" stroke-dasharray="4 3"/>
+    <text x="410" y="82" class="t-sm" fill="#8a93a0">expired — rejected at the token endpoint</text>
+
+    <!-- secret 2 -->
+    <rect x="306" y="110" width="116" height="15" fill="#ffffff"/>
+    <text x="310" y="122" class="t-cap" fill="#5b6270">SECRET 2  “2027-q1”</text>
+    <rect x="310" y="132" width="310" height="30" rx="4" fill="#dcefe7" stroke="#12805c" stroke-width="1.2"/>
+    <text x="324" y="152" class="t-sm" fill="#12805c">active — issued the moment rotation is requested</text>
+
+    <!-- annotations -->
+    <path d="M353,100 L353,118" stroke="#b4690e" stroke-width="1.1"/>
+    <rect x="200" y="182" width="240" height="56" rx="5" fill="#fdf8ef" stroke="#e8d6b4" stroke-width="1"/>
+    <text x="214" y="202" class="t-md" fill="#8a5a08">The overlap window</text>
+    <text x="214" y="219" class="t-xs" fill="#8a5a08">Both secrets work. Deploy the new one,</text>
+    <text x="214" y="232" class="t-xs" fill="#8a5a08">watch lastUsedAt on the old one stop moving.</text>
+    <path d="M320,180 L345,166" stroke="#b4690e" stroke-width="1.1" fill="none"/>
+
+    <!-- revoke -->
+    <circle cx="500" cy="162" r="4" fill="#c8322b"/>
+    <path d="M500,166 L500,182" stroke="#c8322b" stroke-width="1.3"/>
+    <rect x="452" y="182" width="188" height="56" rx="5" fill="#fdf3f2" stroke="#d4635c" stroke-width="1"/>
+    <text x="466" y="202" class="t-md" fill="#c8322b">Revoke — at any time</text>
+    <text x="466" y="219" class="t-xs" fill="#a8574f">Immediate, and takes every</text>
+    <text x="466" y="232" class="t-xs" fill="#a8574f">token the secret minted with it.</text>
+  </svg>
+  <figcaption>
+    Rotation never extends a secret’s life: if the old one was already due to
+    expire before the window closes, the earlier date stands.
+  </figcaption>
+  </figure>
+
+  <div class="cols">
+    <div class="card">
+      <h3>Expiry is not optional</h3>
+      <p style="margin-bottom:0">
+        Every secret is issued with an expiry — 180 days by default. It is
+        enforced at the moment of use, so it is exact. A background sweeper
+        marks lapsed secrets and retires dead tokens.
+      </p>
+    </div>
+    <div class="card">
+      <h3>Stored as a hash</h3>
+      <p style="margin-bottom:0">
+        Only a scrypt hash is kept. The plaintext appears once, at creation.
+        A database leak yields nothing usable, and losing the value means
+        issuing another rather than recovering it.
+      </p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:7mm;margin-bottom:3mm">Rotation, in practice</h3>
+  <table>
+    <tr><th style="width:8mm">#</th><th style="width:34%">Step</th><th>How you know it worked</th></tr>
+    <tr><td style="color:var(--muted)">1</td><td>Request a rotation with a window longer than a deploy takes</td><td>The response carries the new secret and the date the old one stops working</td></tr>
+    <tr><td style="color:var(--muted)">2</td><td>Put the new value in your secret store and roll the deployment</td><td>Services pick it up on restart; no coordination between them is needed</td></tr>
+    <tr><td style="color:var(--muted)">3</td><td>Watch the two secrets</td><td><code>lastUsedAt</code> on the old one stops advancing while <code>useCount</code> on the new one climbs</td></tr>
+    <tr style="border-bottom:none"><td style="color:var(--muted)">4</td><td>Revoke the old secret, or let the window close it</td><td>It disappears from the usable list</td></tr>
+  </table>
+
+  <div class="pf"><span>TRA · Platform architecture</span><span>September 2026</span></div>
+</section>
+
+<!-- ══════════════════════════ 9 · CONTAINMENT ══════════════════════════ -->
+<section class="page">
+  <div class="ph"><span><b>Containment</b> · Architecture overview</span><span>08</span></div>
+
+  <h2>When something goes wrong</h2>
+  <p class="lede">
+    Four levers, in increasing blast radius. Reach for the narrowest one that
+    covers the problem.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 640 214" role="img" aria-label="Four revocation actions ordered by blast radius">
+    <rect x="0" y="16" width="148" height="46" rx="5" fill="#f2faf7" stroke="#12805c" stroke-width="1.3"/>
+    <text x="14" y="36" class="t-md" fill="#12805c">One token</text>
+    <text x="14" y="52" class="t-xs" fill="#4f8f7a">POST /oauth/revoke</text>
+
+    <rect x="0" y="66" width="296" height="46" rx="5" fill="#fdf8ef" stroke="#b4690e" stroke-width="1.3"/>
+    <text x="14" y="86" class="t-md" fill="#8a5a08">One secret — and every token it minted</text>
+    <text x="14" y="102" class="t-xs" fill="#9c7738">DELETE /admin/applications/{app}/secrets/{id}</text>
+
+    <rect x="0" y="116" width="444" height="46" rx="5" fill="#fdf3f2" stroke="#d4635c" stroke-width="1.3"/>
+    <text x="14" y="136" class="t-md" fill="#b8453d">One application — all of its secrets and tokens at once</text>
+    <text x="14" y="152" class="t-xs" fill="#b8635c">POST /admin/applications/{app}/suspend &nbsp;· reversible</text>
+
+    <rect x="0" y="166" width="640" height="46" rx="5" fill="#fbecea" stroke="#c8322b" stroke-width="1.5"/>
+    <text x="14" y="186" class="t-md" fill="#c8322b">Every token in the fleet</text>
+    <text x="14" y="202" class="t-xs" fill="#a8574f">Rotate TOKEN_PEPPER and restart · services recover on their own within one token lifetime · no redeploy</text>
+  </svg>
+  <figcaption>
+    Latency: immediate at the auth service, and up to the verification cache
+    window — 30 seconds by default — at each resource server.
+  </figcaption>
+  </figure>
+
+  <h2 style="margin-top:8mm">Credentials are held separately</h2>
+  <p class="lede" style="margin-bottom:5mm">
+    Each service reads only its own configuration. One compromised service does
+    not become every service.
+  </p>
+
+  <figure>
+  <svg viewBox="0 0 640 176" role="img" aria-label="What credentials each service holds">
+    <rect x="0" y="0" width="204" height="152" rx="6" fill="#eef3fd" stroke="#2159c9" stroke-width="1.3"/>
+    <text x="16" y="24" class="t-md" fill="#2159c9">auth-service</text>
+    <line x1="16" y1="34" x2="188" y2="34" stroke="#c3d4f2" stroke-width="1"/>
+    <text x="16" y="54"  class="t-mono-sm" fill="#14171d">TOKEN_PEPPER</text>
+    <text x="16" y="72"  class="t-mono-sm" fill="#14171d">ADMIN_API_KEY</text>
+    <text x="16" y="90"  class="t-mono-sm" fill="#14171d">every secret hash</text>
+    <text x="16" y="120" class="t-xs" fill="#5b6b8c">The one service that must be</text>
+    <text x="16" y="133" class="t-xs" fill="#5b6b8c">protected as if it were a database</text>
+    <text x="16" y="146" class="t-xs" fill="#5b6b8c">of credentials — because it is.</text>
+
+    <rect x="218" y="0" width="204" height="152" rx="6" fill="#e9f5f3" stroke="#0f8a7e" stroke-width="1.3"/>
+    <text x="234" y="24" class="t-md" fill="#0f8a7e">service-a</text>
+    <line x1="234" y1="34" x2="406" y2="34" stroke="#b9ded8" stroke-width="1"/>
+    <text x="234" y="54" class="t-mono-sm" fill="#14171d">CLIENT_ID</text>
+    <text x="234" y="72" class="t-mono-sm" fill="#14171d">CLIENT_SECRET</text>
+    <text x="234" y="96" class="t-xs" fill="#8a93a0">— and nothing else</text>
+    <text x="234" y="126" class="t-xs" fill="#4a7a74">Cannot read service B’s secret,</text>
+    <text x="234" y="139" class="t-xs" fill="#4a7a74">the pepper, or the admin key.</text>
+
+    <rect x="436" y="0" width="204" height="152" rx="6" fill="#f1ecfb" stroke="#6d3fc4" stroke-width="1.3"/>
+    <text x="452" y="24" class="t-md" fill="#6d3fc4">service-b</text>
+    <line x1="452" y1="34" x2="624" y2="34" stroke="#d6cbee" stroke-width="1"/>
+    <text x="452" y="54" class="t-mono-sm" fill="#14171d">CLIENT_ID</text>
+    <text x="452" y="72" class="t-mono-sm" fill="#14171d">CLIENT_SECRET</text>
+    <text x="452" y="96" class="t-xs" fill="#8a93a0">— and nothing else</text>
+    <text x="452" y="126" class="t-xs" fill="#68599a">Verifies tokens, but cannot</text>
+    <text x="452" y="139" class="t-xs" fill="#68599a">issue or forge one.</text>
+
+    <text x="0" y="172" class="t-xs" fill="#8a93a0">Enforced locally by a separate .env per service; in production, by your secret store’s access policy.</text>
+  </svg>
+  </figure>
+
+  <div class="pf"><span>TRA · Platform architecture</span><span>September 2026</span></div>
+</section>
+
+<!-- ══════════════════════════ 10 · SUMMARY ══════════════════════════ -->
+<section class="page">
+  <div class="ph"><span><b>Summary</b> · Architecture overview</span><span>09</span></div>
+
+  <h2>In short</h2>
+
+  <div class="cols" style="margin-bottom:7mm">
+    <div class="card">
+      <h3 style="color:var(--auth)">The mechanism</h3>
+      <ul style="margin-bottom:0">
+        <li>A secret is exchanged for a short-lived token at one endpoint.</li>
+        <li>The token is opaque and bound to a single recipient.</li>
+        <li>The recipient verifies it with the issuer, and caches the answer.</li>
+        <li>No certificates, no signing keys, no key distribution.</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--auth)">The management model</h3>
+      <ul style="margin-bottom:0">
+        <li>Applications are registered and described centrally.</li>
+        <li>That description reaches every resource server as fact.</li>
+        <li>Secrets are issued, rotated and revoked without a redeploy.</li>
+        <li>Every credential event is recorded.</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3 style="margin-bottom:3mm">Properties worth restating</h3>
+  <table style="margin-bottom:8mm">
+    <tr><th style="width:34%">Property</th><th>How it is achieved</th></tr>
+    <tr><td>A compromised service B cannot impersonate service A</td><td>B only ever receives a token minted for B.</td></tr>
+    <tr><td>A leaked credential is contained in one call</td><td>Revoking a secret revokes every token it minted.</td></tr>
+    <tr><td>A database leak yields nothing usable</td><td>Secrets are scrypt hashes; tokens are HMACs under a pepper held outside the database.</td></tr>
+    <tr><td>Probing reveals nothing</td><td>Wrong secret, unknown application and malformed credential all return one indistinguishable response, in the same time.</td></tr>
+    <tr><td>An outage does not become an opening</td><td>If the auth service cannot be reached, resource servers refuse the request.</td></tr>
+    <tr style="border-bottom:none"><td>Callers cannot lie about themselves</td><td>Their profile comes from the registry at verification time, never from the request.</td></tr>
+  </table>
+
+  <h3 style="margin-bottom:3mm">Before production</h3>
+  <div class="cols">
+    <div>
+      <ul>
+        <li>TLS on every hop — the secret crosses the network once.</li>
+        <li>Move storage from the in-memory connector to PostgreSQL.</li>
+        <li>Replace the shared administrator key with per-operator identity behind SSO.</li>
+      </ul>
+    </div>
+    <div>
+      <ul>
+        <li>Run more than one replica: every call depends on this service.</li>
+        <li>Back up the token pepper; losing it forces a fleet-wide re-authentication.</li>
+        <li>Alert on denied and throttled token requests, and on secrets nearing expiry.</li>
+      </ul>
+    </div>
+  </div>
+
+  <div style="position:absolute;bottom:26mm;left:18mm;right:18mm;border-top:.5pt solid var(--rule);padding-top:4mm">
+    <p class="note" style="margin-bottom:0">
+      Further detail: <code>README.md</code> for the design rationale and full
+      configuration, <code>docs/operations.md</code> for the runbooks —
+      onboarding a service, scheduled rotation, and responding to a leaked
+      secret.
+    </p>
+  </div>
+
+  <div class="pf"><span>TRA · Platform architecture</span><span>September 2026</span></div>
+</section>
+
+</body>
+</html>

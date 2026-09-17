@@ -1,0 +1,1960 @@
+{
+  "info": {
+    "_postman_id": "b3f1a7c2-6d54-4e18-9f0a-2c7d5e8a1b40",
+    "name": "TRA — Service-to-service authentication",
+    "description": "# Service-to-service authentication\n\nThree services: an auth service, a caller (service A) and a protected resource (service B).\n\nA long lived **application secret** is exchanged for a short lived, audience-bound **access token** at `POST /oauth/token`. That is the only request in the system carrying a secret. Everything downstream carries the token, which service B verifies by calling `POST /oauth/introspect`.\n\n## Getting started\n\n1. Select the **TRA — local** environment (top right).\n2. Fill in `adminKey` and `clientSecret`, or generate the environment pre-filled with `npm run postman:env`.\n3. Run **1. Health** to confirm the services are up.\n4. Run **2. OAuth → Get access token**. It saves `accessToken`, which every service-b request then uses.\n\nFolders 1-5 are the runtime flow; 6-8 are the management API. Requests that are meant to fail say so in their name, and their tests assert the failure — so *Run collection* should come out green end to end.\n\n> **Running the whole collection mutates state.** It creates and then deletes a `billing-worker` application, and it issues, rotates and revokes secrets on `{{appId}}`. Safe against a local stack; think before pointing it at anything shared.\n\n## Variables\n\n| Variable | Meaning |\n|---|---|\n| `authUrl`, `serviceAUrl`, `serviceBUrl` | Where each service listens |\n| `adminKey` | `ADMIN_API_KEY` from `packages/auth-service/.env` |\n| `clientId`, `clientSecret` | From `packages/service-a/.env` |\n| `accessToken`, `introspectToken` | Filled in by the OAuth requests |\n| `appId`, `secretId`, `newAppId`, `newSecretId` | Filled in by the admin requests |\n",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Health",
+      "description": "Unauthenticated liveness probes. Start here to confirm all three services are up.",
+      "item": [
+        {
+          "name": "auth-service",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/health",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "service-a",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceAUrl}}/health",
+              "host": [
+                "{{serviceAUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        },
+        {
+          "name": "service-b",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceBUrl}}/health",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. OAuth — secret to token",
+      "description": "The exchange at the heart of the design. `POST /oauth/token` is the only endpoint in the whole system that accepts an application secret; everything downstream carries the short lived token it returns.\n\nRun **Get access token** first — it saves `accessToken` into the environment, which every service-b request below then uses.",
+      "item": [
+        {
+          "name": "Get access token (for service-b)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/token",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "Credentials go in the Authorization header as HTTP Basic. The token comes back scoped to one audience and expires in minutes.\n\nSaves `accessToken` for the rest of the collection.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{clientSecret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "service-b",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "orders:read",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('token is opaque, not a JWT', () => pm.expect(body.access_token).to.match(/^tra_at_[0-9a-f]{16}\\./));",
+                  "pm.test('bound to one audience', () => pm.expect(body.audience).to.eql('service-b'));",
+                  "pm.test('short lived', () => pm.expect(body.expires_in).to.be.at.most(3600));",
+                  "pm.environment.set('accessToken', body.access_token);",
+                  "console.log('saved accessToken, expires in ' + body.expires_in + 's');"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get introspection token (for tra-auth)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/token",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "A token for the auth service itself. This is what a resource server uses to call `/oauth/introspect` — so even verification never sends a secret.\n\nSaves `introspectToken`.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{clientSecret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "tra-auth",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "introspect",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('introspectToken', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get access token (credentials in body)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/token",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "The RFC 6749 alternative to Basic auth. Sending both at once is rejected rather than silently resolved.",
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "service-b",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "orders:read",
+                  "type": "text"
+                },
+                {
+                  "key": "client_id",
+                  "value": "{{clientId}}",
+                  "type": "text"
+                },
+                {
+                  "key": "client_secret",
+                  "value": "{{clientSecret}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Introspect a token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/introspect",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "introspect"
+              ]
+            },
+            "description": "RFC 7662. What service B calls on every request (cached for 30s).\n\nThe response carries the calling application's registry profile — team, owner, environment, tags, metadata — which the caller cannot forge because it never touches it.\n\nRequires **Get introspection token** to have run.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{introspectToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('token is active', () => pm.expect(body.active).to.be.true);",
+                  "pm.test('caller profile is included', () => pm.expect(body.app).to.have.property('team'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get a disposable token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/token",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "A throwaway token for the revocation demonstration below, so the `accessToken` the rest of the collection depends on stays alive.\n\nSaves `disposableToken`.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{clientSecret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "service-b",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "orders:read",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.environment.set('disposableToken', pm.response.json().access_token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke the disposable token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/revoke",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "revoke"
+              ]
+            },
+            "description": "RFC 7009. Always answers 200 whether or not the token existed, so it cannot be used to probe for valid tokens.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{introspectToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{disposableToken}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Introspect the revoked token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/introspect",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "introspect"
+              ]
+            },
+            "description": "Now inactive. Revocation is immediate at the auth service because the token is opaque and has to be checked here — a signed JWT would stay valid until it expired.\n\n`active: false` covers every failure mode (expired, revoked, malformed, unknown), so probing this endpoint reveals nothing.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{introspectToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "token",
+                  "value": "{{disposableToken}}",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('token is no longer active', () => pm.expect(pm.response.json().active).to.be.false);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "3. Rejections — what failure looks like",
+      "description": "Each request here is expected to fail, and the test asserts the failure. Together they are the authorisation model stated as behaviour.",
+      "item": [
+        {
+          "name": "Wrong secret (401 invalid_client)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/token",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "A wrong secret, an unknown application and a malformed credential all return this same response. The endpoint also burns one scrypt verification on the failure path so response timing does not leak whether the application exists.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "tra_sk_0000000000000000.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "service-b",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('invalid_client', () => pm.expect(pm.response.json().error).to.eql('invalid_client'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unknown application (same 401)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/token",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "Indistinguishable from a wrong secret, on purpose.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "no-such-app",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{clientSecret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "service-b",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));",
+                  "pm.test('invalid_client', () => pm.expect(pm.response.json().error).to.eql('invalid_client'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Audience the app may not call (403)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/token",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "An application can only request tokens for audiences on its `allowedAudiences` list.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{clientSecret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "some-other-service",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('unauthorized_client', () => pm.expect(pm.response.json().error).to.eql('unauthorized_client'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Scope never granted (400 invalid_scope)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{authUrl}}/oauth/token",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "oauth",
+                "token"
+              ]
+            },
+            "description": "`allowedScopes` is a ceiling, not a grant: a request may ask for a subset of it, never more. The demo service-a is read only.",
+            "auth": {
+              "type": "basic",
+              "basic": [
+                {
+                  "key": "username",
+                  "value": "{{clientId}}",
+                  "type": "string"
+                },
+                {
+                  "key": "password",
+                  "value": "{{clientSecret}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "grant_type",
+                  "value": "client_credentials",
+                  "type": "text"
+                },
+                {
+                  "key": "audience",
+                  "value": "service-b",
+                  "type": "text"
+                },
+                {
+                  "key": "scope",
+                  "value": "orders:write",
+                  "type": "text"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400', () => pm.response.to.have.status(400));",
+                  "pm.test('invalid_scope', () => pm.expect(pm.response.json().error).to.eql('invalid_scope'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "No token at service B (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceBUrl}}/orders/1001",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "orders",
+                "1001"
+              ]
+            },
+            "description": "Resource endpoints require a bearer token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Garbage token at service B (401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Authorization",
+                "value": "Bearer tra_at_0000000000000000.AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+              }
+            ],
+            "url": {
+              "raw": "{{serviceBUrl}}/orders/1001",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "orders",
+                "1001"
+              ]
+            },
+            "description": "Tokens are opaque, so nothing can be forged from the format alone — the auth service is the only thing that can say a token is real."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Token for the wrong audience (401)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceBUrl}}/orders/1001",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "orders",
+                "1001"
+              ]
+            },
+            "description": "A token minted for `tra-auth` is refused by service B. This is what stops a service replaying the tokens it receives against a third party.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{introspectToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('401', () => pm.response.to.have.status(401));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Valid token, missing scope (403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{serviceBUrl}}/orders",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Authentication succeeded; authorisation did not. `POST /orders` needs `orders:write`, which the token does not carry.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"TRA-LIC-9999\",\n  \"amount\": 500,\n  \"currency\": \"AED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));",
+                  "pm.test('says which scope is missing', () => pm.expect(pm.response.text()).to.include('orders:write'));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4. Service B — the protected resource",
+      "description": "Called directly with a bearer token. Service B introspects it at the auth service before any controller code runs.\n\nRun **2. OAuth → Get access token** first.",
+      "item": [
+        {
+          "name": "Who am I",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceBUrl}}/whoami",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "whoami"
+              ]
+            },
+            "description": "Everything service B knows about the caller. The most useful endpoint when wiring up a new client: it shows exactly which registry fields and scopes arrived with the token.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('profile carries team and metadata', () => {",
+                  "  pm.expect(body.profile).to.have.property(\"team\");",
+                  "  pm.expect(body.profile.metadata).to.have.property(\"tenantId\");",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get order",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceBUrl}}/orders/1001",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "orders",
+                "1001"
+              ]
+            },
+            "description": "Requires `orders:read`. Visibility is scoped by the caller's `metadata.tenantId` from the registry — not by anything in the request — so a service cannot reach another tenant's data by asking.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get order from another tenant (403)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceBUrl}}/orders/2001",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "orders",
+                "2001"
+              ]
+            },
+            "description": "Order 2001 belongs to `other-tenant`. The caller is registered under `tdra`, so service B refuses.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List orders",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceBUrl}}/orders",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Filtered to the caller's tenant.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create order (needs orders:write)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{serviceBUrl}}/orders",
+              "host": [
+                "{{serviceBUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "description": "Returns 403 with the seeded service-a credentials. To see it succeed, add `orders:write` to the application's `allowedScopes` (see **5. Applications → Update application**), then request a new token with `scope=orders:read orders:write`.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"TRA-LIC-3001\",\n  \"amount\": 7800,\n  \"currency\": \"AED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Service A — the caller",
+      "description": "Service A holds its own secret and turns it into tokens on demand, so none of these requests take a credential. Each one triggers the full chain: secret → token → call to service B → introspection → response.",
+      "item": [
+        {
+          "name": "Fetch an order through service A",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceAUrl}}/demo/orders/1001",
+              "host": [
+                "{{serviceAUrl}}"
+              ],
+              "path": [
+                "demo",
+                "orders",
+                "1001"
+              ]
+            },
+            "description": "The end-to-end path, in one request."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List orders through service A",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceAUrl}}/demo/orders",
+              "host": [
+                "{{serviceAUrl}}"
+              ],
+              "path": [
+                "demo",
+                "orders"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "What service B sees about service A",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{serviceAUrl}}/demo/whoami",
+              "host": [
+                "{{serviceAUrl}}"
+              ],
+              "path": [
+                "demo",
+                "whoami"
+              ]
+            },
+            "description": "The registry profile that travels with the token, as service B receives it."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Create an order (expected 403)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{serviceAUrl}}/demo/orders",
+              "host": [
+                "{{serviceAUrl}}"
+              ],
+              "path": [
+                "demo",
+                "orders"
+              ]
+            },
+            "description": "Service A passes service B's status code through rather than flattening it into a 500, so you see the real 403.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reference\": \"TRA-LIC-4001\",\n  \"amount\": 2200,\n  \"currency\": \"AED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('403', () => pm.response.to.have.status(403));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Drop the cached token",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{serviceAUrl}}/demo/refresh-token",
+              "host": [
+                "{{serviceAUrl}}"
+              ],
+              "path": [
+                "demo",
+                "refresh-token"
+              ]
+            },
+            "description": "Forces the next call to mint a fresh token. Use after rotating service A's secret."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "6. Admin — Applications",
+      "description": "The registry. Everything written here reaches resource servers with the token, so this is where you describe a caller well enough for service B to make decisions about it — and for an on-call engineer to know who to contact.\n\nAuthenticated with `x-admin-key`. This is a different trust domain from service traffic: it creates the credentials everything else depends on.",
+      "item": [
+        {
+          "name": "Create application (with first secret)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications?issueSecret=true&secretLabel=initial&secretTtlDays=90",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications"
+              ],
+              "query": [
+                {
+                  "key": "issueSecret",
+                  "value": "true"
+                },
+                {
+                  "key": "secretLabel",
+                  "value": "initial"
+                },
+                {
+                  "key": "secretTtlDays",
+                  "value": "90"
+                }
+              ]
+            },
+            "description": "`metadata` is free-form: put whatever a resource server needs to route, meter or restrict this caller.\n\n`allowedAudiences` is which services it may request tokens for. `allowedScopes` is the ceiling on what it can ever be granted.\n\nWith `?issueSecret=true` the response includes the plaintext secret — once. It is stored only as a scrypt hash and cannot be recovered.\n\nSaves `newAppId` and `newSecretId`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"id\": \"billing-worker\",\n  \"name\": \"Billing Worker\",\n  \"description\": \"Nightly invoice reconciliation\",\n  \"team\": \"finance-platform\",\n  \"owner\": \"Finance Engineering\",\n  \"contactEmail\": \"finance-eng@example.ae\",\n  \"environment\": \"dev\",\n  \"tags\": [\n    \"batch\",\n    \"internal\"\n  ],\n  \"metadata\": {\n    \"tenantId\": \"tdra\",\n    \"rateLimitTier\": \"gold\",\n    \"dataResidency\": \"ae\",\n    \"costCentre\": \"CC-4410\"\n  },\n  \"audience\": \"billing-worker\",\n  \"allowedAudiences\": [\n    \"service-b\",\n    \"tra-auth\"\n  ],\n  \"allowedScopes\": [\n    \"orders:read\",\n    \"introspect\"\n  ],\n  \"tokenTtlSeconds\": 600,\n  \"allowedIps\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('newAppId', body.application.id);",
+                  "if (body.secret) {",
+                  "  pm.environment.set('newSecretId', body.secret.id);",
+                  "  console.log('SECRET (shown once): ' + body.secret.secret);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List applications",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications?environment=dev&team=finance-platform&tag=batch&status=active",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications"
+              ],
+              "query": [
+                {
+                  "key": "environment",
+                  "value": "dev",
+                  "disabled": true
+                },
+                {
+                  "key": "team",
+                  "value": "finance-platform",
+                  "disabled": true
+                },
+                {
+                  "key": "tag",
+                  "value": "batch",
+                  "disabled": true
+                },
+                {
+                  "key": "status",
+                  "value": "active",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "All filters are optional; enable the ones you need."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get application",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{newAppId}}",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{newAppId}}"
+              ]
+            },
+            "description": "Returns the registry entry, a summary of its secrets (metadata only, never hashes) and how many live tokens it currently holds."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update application",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{newAppId}}",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{newAppId}}"
+              ]
+            },
+            "description": "Changes reach resource servers as soon as their introspection cache turns over — 30 seconds by default. Widening `allowedScopes` does not change tokens already issued; those carry the scopes they were minted with.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"environment\": \"prod\",\n  \"tags\": [\n    \"batch\",\n    \"internal\",\n    \"pci\"\n  ],\n  \"metadata\": {\n    \"tenantId\": \"tdra\",\n    \"rateLimitTier\": \"platinum\",\n    \"dataResidency\": \"ae\",\n    \"costCentre\": \"CC-4410\"\n  },\n  \"allowedScopes\": [\n    \"orders:read\",\n    \"orders:write\",\n    \"introspect\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Suspend application",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{newAppId}}/suspend",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{newAppId}}",
+                "suspend"
+              ]
+            },
+            "description": "Reversible kill switch: no new tokens, and every outstanding token is revoked. The audit history survives.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"investigating unusual traffic\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate application",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{newAppId}}/activate",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{newAppId}}",
+                "activate"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete application",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{newAppId}}",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{newAppId}}"
+              ]
+            },
+            "description": "Prefer suspend. Deletion removes secrets and tokens but keeps the audit trail."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "7. Admin — Secrets",
+      "description": "An application may hold up to five secrets at once. That is what makes rotation possible without a moment where nothing works.\n\nThese requests act on `{{appId}}` (default `service-a`). Run **Issue secret** first to populate `{{secretId}}`.\n\n> **These change real credentials.** Issue, rotate and revoke take effect immediately on whichever application `{{appId}}` names. Harmless against a local stack; point `authUrl` at a shared environment and you are rotating that environment's credentials for real.",
+      "item": [
+        {
+          "name": "Issue secret",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{appId}}/secrets",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{appId}}",
+                "secrets"
+              ]
+            },
+            "description": "Send `ttlDays`, or `expiresAt` for an exact instant (it wins if both are present). `ttlDays: 0` means no expiry and is discouraged.\n\nThe plaintext is in the response once and never again.\n\nSaves `secretId`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"ci-runner\",\n  \"ttlDays\": 90\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('has an expiry', () => pm.expect(body.expiresAt).to.be.ok);",
+                  "pm.environment.set('secretId', body.id);",
+                  "console.log('SECRET (shown once): ' + body.secret);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List secrets",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{appId}}/secrets",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{appId}}",
+                "secrets"
+              ]
+            },
+            "description": "Metadata only — status, expiry, `lastUsedAt`, `useCount`. Use it to find stale credentials before revoking them, and to confirm a rotation has taken effect."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rotate secret",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{appId}}/secrets/{{secretId}}/rotate",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{appId}}",
+                "secrets",
+                "{{secretId}}",
+                "rotate"
+              ]
+            },
+            "description": "Issues the replacement immediately and puts the old secret on a countdown, so a running fleet can pick up the new value without a gap. `graceMinutes: 0` revokes the old one at once.\n\nRotation never extends a secret's life: an earlier expiry stands.\n\nSaves the new id as `secretId`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"label\": \"ci-runner-2026-q4\",\n  \"graceMinutes\": 60,\n  \"ttlDays\": 180\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.environment.set('secretId', body.secret.id);",
+                  "console.log('NEW SECRET (shown once): ' + body.secret.secret);",
+                  "console.log('old secret stops working at: ' + body.previous.stopsWorkingAt);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Change expiry",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{appId}}/secrets/{{secretId}}/expiry",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{appId}}",
+                "secrets",
+                "{{secretId}}",
+                "expiry"
+              ]
+            },
+            "description": "Shorten the life of a suspect credential, or extend one about to lapse before a rotation can be scheduled. Send `ttlDays`, or `expiresAt` for an exact instant, or `\"expiresAt\": null` to clear the expiry entirely (discouraged).\n\nA revoked secret cannot be revived this way.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ttlDays\": 7\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Revoke secret",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/applications/{{appId}}/secrets/{{secretId}}?reason=leaked in CI logs",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "applications",
+                "{{appId}}",
+                "secrets",
+                "{{secretId}}"
+              ],
+              "query": [
+                {
+                  "key": "reason",
+                  "value": "leaked in CI logs"
+                }
+              ]
+            },
+            "description": "Break-glass path. The secret stops working at once and every access token it minted is revoked with it — `revokedTokens` in the response tells you how many. Resource servers stop honouring those tokens once their introspection cache turns over."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "console.log('revoked tokens: ' + pm.response.json().revokedTokens);"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "8. Admin — Audit",
+      "description": "Append-only record of everything that touches credentials. Without it, \"which service used the leaked secret, and when\" has no answer.",
+      "item": [
+        {
+          "name": "List audit events",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/audit?limit=100&appId=service-a&type=token.denied&outcome=failure",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "100"
+                },
+                {
+                  "key": "appId",
+                  "value": "service-a",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "token.denied",
+                  "disabled": true
+                },
+                {
+                  "key": "outcome",
+                  "value": "failure",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Newest first. Event types: `token.issued`, `token.denied`, `token.throttled`, `token.revoked`, `secret.issued`, `secret.rotated`, `secret.revoked`, `secret.expired`, `secret.expiry_changed`, `app.created`, `app.updated`, `app.suspended`, `app.activated`, `app.deleted`.\n\nAdmin actions are recorded under an `admin:<fingerprint>` actor — the key itself never appears."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Trace one secret",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "x-admin-key",
+                "value": "{{adminKey}}"
+              }
+            ],
+            "url": {
+              "raw": "{{authUrl}}/admin/audit?appId={{appId}}&limit=1000",
+              "host": [
+                "{{authUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit"
+              ],
+              "query": [
+                {
+                  "key": "appId",
+                  "value": "{{appId}}"
+                },
+                {
+                  "key": "limit",
+                  "value": "1000"
+                }
+              ]
+            },
+            "description": "After a leak, this is the input to deciding what was actually done with the credential: every token issued from it, with source IP and timestamp. Filter the response by `secretId`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "authUrl",
+      "value": "http://localhost:3000"
+    },
+    {
+      "key": "serviceAUrl",
+      "value": "http://localhost:3001"
+    },
+    {
+      "key": "serviceBUrl",
+      "value": "http://localhost:3002"
+    },
+    {
+      "key": "clientId",
+      "value": "service-a"
+    },
+    {
+      "key": "appId",
+      "value": "service-a"
+    }
+  ]
+}
